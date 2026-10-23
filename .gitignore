@@ -1,0 +1,41 @@
+# === Jupyter Notebooks ===
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+__notebook_profiles__/
+.virtual_documents/
+
+# === Python Cache and Compiled Files ===
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# === Virtual Environments ===
+.venv/
+venv/
+ENV/
+env/
+.env
+
+# === Environment Variables and Secrets (API keys, Tokens) ===
+.env.local
+.env.*.local
+*.secret
+*.pem
+
+# === IDE Settings (VS Code, PyCharm, Cursor) ===
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# === Large Files, Logs and Data (Optional) ===
+*.log
+data/raw/
+data/processed/
+*.yml.gz
