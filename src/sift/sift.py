@@ -5,7 +5,9 @@ from pathlib import Path
 import cv2
 import torch
 
+from octave import Octave
 from util import gaussian_blur
+
 
 @dataclass
 class SIFTParams:
@@ -28,14 +30,6 @@ class SIFTParams:
     enable_descriptor_bin_interpolation = True
 
 
-@dataclass
-class Octave:
-    layers: list[torch.Tensor]
-
-    def __repr__(self):
-        return f"n_layers: {len(self.layers)}, shape: {self.layers[0].shape}"
-
-
 def build_octaves(img: torch.Tensor, params: SIFTParams) -> list[Octave]:
     s = params.n_octave_layers
     sigma0 = params.sigma
@@ -56,7 +50,7 @@ def build_octaves(img: torch.Tensor, params: SIFTParams) -> list[Octave]:
         for i in range(1, n_layers):
             sigma_layer = sigma0 * (2.0 ** (i / s))
             sigma_layer = math.sqrt(sigma_layer ** 2 - sigma0 ** 2)
-            layers.append(gaussian_blur(layers[0], sigma_layer))            
+            layers.append(gaussian_blur(layers[0], sigma_layer))
 
         if octave_idx + 1 < n_octaves:
             base = layers[s][:, ::2, ::2]
@@ -65,8 +59,18 @@ def build_octaves(img: torch.Tensor, params: SIFTParams) -> list[Octave]:
 
     return octaves
 
+def build_dog(octaves: list[Octave]):
+    dog: list[Octave] = []
 
-def read_octaves(path: Path | str):
+    for octave in octaves:
+        dog_layers: list[torch.Tensor] = []
+        for i in range(0, len(octave.layers) - 1):
+            dog_layers.append(octave.layers[i+1] - octave.layers[i])
+        dog.append(Octave(layers=dog_layers))
+    return dog
+
+
+def read_octaves(path: Path | str) -> list[Octave]:
     # with gzip.open(path, 'rt', encoding='utf-8') as f:
     #     print(f.read())
     fs = cv2.FileStorage(path, cv2.FILE_STORAGE_READ)

@@ -25,15 +25,6 @@ env/
 *.secret
 *.pem
 
-# === IDE Settings (VS Code, PyCharm, Cursor) ===
-.idea/
-.vscode/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.swp
-
 # === Large Files, Logs and Data (Optional) ===
 *.log
 data/raw/
