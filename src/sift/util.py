@@ -5,8 +5,6 @@ import torch
 import torchvision.utils as vutils
 import matplotlib.pyplot as plt
 
-from octave import Octave
-
 
 def gaussian_blur(img, sigma):
     blurred = cv2.GaussianBlur(
@@ -19,36 +17,35 @@ def gaussian_blur(img, sigma):
     return torch.from_numpy(blurred)
 
 
-def draw_octaves_grid(octaves: list[Octave], normalize=False):
-    for octave in octaves:
-        batch = octave.layers.unsqueeze(1)
+def draw_octaves_grid(octaves: list[torch.Tensor], normalize=False):
+    for i, octave in enumerate(octaves):
+        batch = octave.unsqueeze(1)
 
         grid = vutils.make_grid(batch, nrow=3, padding=2, normalize=normalize)
         grid = grid.permute(1, 2, 0).numpy()
 
         plt.figure(figsize=(10, 7))
-        plt.title(f"{octave}")
+        plt.title(f"octave: {i}, shape: {octave.shape}")
         plt.imshow(grid)
         plt.axis("off")
         plt.show()
 
 
-def assert_octaves(octaves: list[Octave], ref_octaves: list[Octave]):
+def assert_octaves(octaves: list[torch.Tensor], ref_octaves: list[torch.Tensor]):
     assert len(ref_octaves) == len(octaves)
     for ref_octave, octave in zip(ref_octaves, octaves):
-        assert len(ref_octave.layers) == len(octave.layers)
-        for ref_layer, layer in zip(ref_octave.layers, octave.layers):
-            assert torch.allclose(ref_layer, layer, atol=1e-5, rtol=1e-5)
+        assert ref_octave.shape == octave.shape 
+        assert torch.allclose(ref_octave, octave, atol=1e-5, rtol=1e-5)
 
 
 
-def read_octaves(path: Path | str) -> list[Octave]:
+def read_octaves(path: Path | str) -> list[torch.Tensor]:
     # with gzip.open(path, 'rt', encoding='utf-8') as f:
     #     print(f.read())
     fs = cv2.FileStorage(path, cv2.FILE_STORAGE_READ)
 
     num_octaves = int(fs.getNode("num_octaves").real())
-    octaves: list[Octave] = []
+    octaves: list[torch.Tensor] = []
 
     for o in range(num_octaves):
         layers: list[torch.Tensor] = []
@@ -57,7 +54,7 @@ def read_octaves(path: Path | str) -> list[Octave]:
             layer = fs.getNode(f"octave_{o}_layer_{l}").mat()
             layer = torch.from_numpy(layer)
             layers.append(layer)
-        octaves.append(Octave(torch.stack(layers)))
+        octaves.append(torch.stack(layers))
 
     fs.release()
 
