@@ -5,7 +5,7 @@ import torch
 
 @dataclass
 class Octave:
-    layers: list[torch.Tensor]
+    layers: torch.Tensor # [n_layers, rows, cols]
 
     def __repr__(self):
-        return f"n_layers: {len(self.layers)}, shape: {self.layers[0].shape}"
+        return f"n_layers, rows, colls: {self.layers.shape}"

@@ -16,12 +16,12 @@ def gaussian_blur(img, sigma):
         sigmaY=sigma,
         borderType=cv2.BORDER_REFLECT_101,
     )
-    return torch.from_numpy(blurred).unsqueeze(0)
+    return torch.from_numpy(blurred)
 
 
 def draw_octaves_grid(octaves: list[Octave], normalize=False):
     for octave in octaves:
-        batch = torch.stack([t for t in octave.layers])
+        batch = octave.layers.unsqueeze(1)
 
         grid = vutils.make_grid(batch, nrow=3, padding=2, normalize=normalize)
         grid = grid.permute(1, 2, 0).numpy()
@@ -39,3 +39,26 @@ def assert_octaves(octaves: list[Octave], ref_octaves: list[Octave]):
         assert len(ref_octave.layers) == len(octave.layers)
         for ref_layer, layer in zip(ref_octave.layers, octave.layers):
             assert torch.allclose(ref_layer, layer, atol=1e-5, rtol=1e-5)
+
+
+
+def read_octaves(path: Path | str) -> list[Octave]:
+    # with gzip.open(path, 'rt', encoding='utf-8') as f:
+    #     print(f.read())
+    fs = cv2.FileStorage(path, cv2.FILE_STORAGE_READ)
+
+    num_octaves = int(fs.getNode("num_octaves").real())
+    octaves: list[Octave] = []
+
+    for o in range(num_octaves):
+        layers: list[torch.Tensor] = []
+        num_layers = int(fs.getNode(f"octave_{o}_num_layers").real())
+        for l in range(num_layers):
+            layer = fs.getNode(f"octave_{o}_layer_{l}").mat()
+            layer = torch.from_numpy(layer)
+            layers.append(layer)
+        octaves.append(Octave(torch.stack(layers)))
+
+    fs.release()
+
+    return octaves

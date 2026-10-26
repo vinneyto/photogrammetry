@@ -2,32 +2,11 @@ from dataclasses import dataclass
 import math
 from pathlib import Path
 
-import cv2
 import torch
 
 from octave import Octave
+from sift_params import SIFTParams
 from util import gaussian_blur
-
-
-@dataclass
-class SIFTParams:
-    nfeatures = 0
-    n_octave_layers = 3
-    contrast_threshold = 0.04
-    edge_threshold = 10
-    sigma = 1.6
-
-    orient_peak_ratio = 0.8
-    orient_nbins = 36
-    upscale_first = True
-
-    enable_subpixel_localization = True
-    enable_edge_like_filtering = True
-    enable_orientation_bin_interpolation = True
-    enable_orientation_gaussian_weighting = True
-    enable_orientation_subpixel_localization = True
-    enable_descriptor_gaussian_weighting = True
-    enable_descriptor_bin_interpolation = True
 
 
 def build_octaves(img: torch.Tensor, params: SIFTParams) -> list[Octave]:
@@ -53,11 +32,12 @@ def build_octaves(img: torch.Tensor, params: SIFTParams) -> list[Octave]:
             layers.append(gaussian_blur(layers[0], sigma_layer))
 
         if octave_idx + 1 < n_octaves:
-            base = layers[s][:, ::2, ::2]
+            base = layers[s][::2, ::2]
 
-        octaves.append(Octave(layers))
+        octaves.append(Octave(torch.stack(layers)))
 
     return octaves
+
 
 def build_dog(octaves: list[Octave]):
     dog: list[Octave] = []
@@ -66,27 +46,16 @@ def build_dog(octaves: list[Octave]):
         dog_layers: list[torch.Tensor] = []
         for i in range(0, len(octave.layers) - 1):
             dog_layers.append(octave.layers[i+1] - octave.layers[i])
-        dog.append(Octave(layers=dog_layers))
+        dog.append(Octave(layers=torch.stack(dog_layers)))
     return dog
 
 
-def read_octaves(path: Path | str) -> list[Octave]:
-    # with gzip.open(path, 'rt', encoding='utf-8') as f:
-    #     print(f.read())
-    fs = cv2.FileStorage(path, cv2.FILE_STORAGE_READ)
+def find_scale_space_extrema(dog: list[Octave], params: SIFTParams):
+    s = params.n_octave_layers
+    sigma0 = params.sigma
+    contrast_threshold = params.contrast_threshold
+    edge_threshold = params.edge_threshold
 
-    num_octaves = int(fs.getNode("num_octaves").real())
-    octaves: list[Octave] = []
+    thresh = contrast_threshold / s
 
-    for o in range(num_octaves):
-        layers: list[torch.Tensor] = []
-        num_layers = int(fs.getNode(f"octave_{o}_num_layers").real())
-        for l in range(num_layers):
-            layer = fs.getNode(f"octave_{o}_layer_{l}").mat()
-            layer = torch.from_numpy(layer).unsqueeze(0)
-            layers.append(layer)
-        octaves.append(Octave(layers))
-
-    fs.release()
-
-    return octaves
+    first_octave = -1 if params.upscale_first else 0
