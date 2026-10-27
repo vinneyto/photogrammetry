@@ -8,6 +8,16 @@ from sift_params import SIFTParams
 from util import gaussian_blur
 
 
+@dataclass
+class KeyPoint:
+    x: float
+    y: float
+    size: float
+    octave: int
+    class_id: int
+    response: float
+
+
 def build_octaves(img: torch.Tensor, params: SIFTParams) -> list[torch.Tensor]: # [[n_layers, rows, cols]]
     s = params.n_octave_layers
     sigma0 = params.sigma
