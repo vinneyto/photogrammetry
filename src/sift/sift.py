@@ -268,3 +268,7 @@ def find_scale_space_extrema(dog: list[torch.Tensor], params: SIFTParams) -> lis
             keypoints.append(point)
 
     return keypoints
+
+
+def compute_orientations(kpts: list[KeyPoint], octaves: list[torch.Tensor], params: SIFTParams) -> list[KeyPoint]:
+    pass
