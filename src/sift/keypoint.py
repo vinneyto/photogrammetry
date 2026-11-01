@@ -9,3 +9,4 @@ class KeyPoint:
     octave: int
     class_id: int
     response: float
+    angle: float

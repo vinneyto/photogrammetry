@@ -330,13 +330,13 @@ def read_keypoints(path: Path | str) -> list[KeyPoint]:
         x = kp_cv2.at(0).real()
         y = kp_cv2.at(1).real()
         size = kp_cv2.at(2).real()
-        _ = kp_cv2.at(3).real() # angle
+        angle = kp_cv2.at(3).real()
         response = kp_cv2.at(4).real()
         octave = int(kp_cv2.at(5).real())
         class_id = int(kp_cv2.at(6).real())
 
         kp = KeyPoint(
-            x=x, y=y, size=size, octave=octave, class_id=class_id, response=response
+            x=x, y=y, size=size, octave=octave, class_id=class_id, response=response, angle=angle
         )
 
         keypoints.append(kp)
@@ -356,5 +356,6 @@ def assert_keypoints(keypoints: list[KeyPoint], ref_keypoints: list[KeyPoint]):
         assert kp.octave == ref_kp.octave
         assert kp.class_id == ref_kp.class_id
         assert math.isclose(kp.response, ref_kp.response, rel_tol=1e-5, abs_tol=1e-3)
+        assert math.isclose(kp.angle, ref_kp.angle, rel_tol=1e-5, abs_tol=1e-3)
 
     
