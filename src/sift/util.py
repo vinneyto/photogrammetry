@@ -1,14 +1,13 @@
 import math
 from pathlib import Path
-import numpy as np
+
 import cv2
-import torch
-
-import torchvision.utils as vutils
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
-
+import numpy as np
+import torch
+import torchvision.utils as vutils
 from keypoint import KeyPoint
+from matplotlib.patches import Rectangle
 
 
 def gaussian_blur(img, sigma):
@@ -75,18 +74,21 @@ def draw_orientation_weights(img, weight, xi, yi):
     x_min = xi - w // 2
     y_min = yi - h // 2
 
-    tile = image[y_min:y_min + h, x_min:x_min + w]
+    tile = image[y_min : y_min + h, x_min : x_min + w]
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 6))
 
     axes[0].imshow(image, cmap="gray")
-    axes[0].add_patch(Rectangle(
-        (x_min - 0.5, y_min - 0.5),
-        w, h,
-        edgecolor="red",
-        facecolor="none",
-        linewidth=1.5,
-    ))
+    axes[0].add_patch(
+        Rectangle(
+            (x_min - 0.5, y_min - 0.5),
+            w,
+            h,
+            edgecolor="red",
+            facecolor="none",
+            linewidth=1.5,
+        )
+    )
     axes[0].plot(xi, yi, "r+", markersize=8)
     axes[0].set_title(f"Keypoint ({xi}, {yi})")
 
@@ -136,29 +138,25 @@ class OrientationDebugger:
         if len(self.points) >= self.n:
             return
 
-        self.points.append({
-            "hist": self._numpy(histogram).reshape(-1),
-            "tile": self._numpy(img_tile).squeeze(),
-            "xi": xi,
-            "yi": yi,
-            "radius": radius,
-            "octave": octave,
-            "layer": layer,
-            "label": str(
-                label if label is not None else len(self.points)
-            ),
-        })
+        self.points.append(
+            {
+                "hist": self._numpy(histogram).reshape(-1),
+                "tile": self._numpy(img_tile).squeeze(),
+                "xi": xi,
+                "yi": yi,
+                "radius": radius,
+                "octave": octave,
+                "layer": layer,
+                "label": str(label if label is not None else len(self.points)),
+            }
+        )
 
     @staticmethod
     def _draw_histogram(ax, hist, x, y, length, color):
         angles = np.arange(hist.size) * (2 * np.pi / hist.size)
 
         peak = hist.max()
-        lengths = (
-            hist / peak * length
-            if peak > 0
-            else np.zeros_like(hist)
-        )
+        lengths = hist / peak * length if peak > 0 else np.zeros_like(hist)
 
         ax.quiver(
             np.full(hist.size, x),
@@ -185,14 +183,10 @@ class OrientationDebugger:
             figsize=(8 + 3.5 * columns, max(6, 3.5 * rows)),
             constrained_layout=True,
         )
-        outer = fig.add_gridspec(
-            1, 2, width_ratios=[1, 1.3]
-        )
+        outer = fig.add_gridspec(1, 2, width_ratios=[1, 1.3])
 
         overview = fig.add_subplot(outer[0, 0])
-        overview.imshow(
-            self.image, cmap="gray", origin="upper"
-        )
+        overview.imshow(self.image, cmap="gray", origin="upper")
         overview.set_title("Keypoints and tile bounds")
 
         grid = outer[0, 1].subgridspec(rows, columns)
@@ -212,21 +206,27 @@ class OrientationDebugger:
             h, w = tile.shape
 
             # Рамка тайла в координатах исходного изображения
-            overview.add_patch(Rectangle(
-                (
-                    x - (radius + 0.5) * scale,
-                    y - (radius + 0.5) * scale,
-                ),
-                w * scale,
-                h * scale,
-                edgecolor=color,
-                facecolor="none",
-                linewidth=1.5,
-            ))
+            overview.add_patch(
+                Rectangle(
+                    (
+                        x - (radius + 0.5) * scale,
+                        y - (radius + 0.5) * scale,
+                    ),
+                    w * scale,
+                    h * scale,
+                    edgecolor=color,
+                    facecolor="none",
+                    linewidth=1.5,
+                )
+            )
 
             self._draw_histogram(
-                overview, hist, x, y,
-                radius * scale, color,
+                overview,
+                hist,
+                x,
+                y,
+                radius * scale,
+                color,
             )
 
             overview.annotate(
@@ -244,9 +244,7 @@ class OrientationDebugger:
             )
 
             # Справа — реальный тайл соответствующего слоя
-            ax = fig.add_subplot(
-                grid[i // columns, i % columns]
-            )
+            ax = fig.add_subplot(grid[i // columns, i % columns])
             ax.imshow(
                 tile,
                 cmap="gray",
@@ -254,26 +252,32 @@ class OrientationDebugger:
                 interpolation="nearest",
             )
 
-            ax.add_patch(Rectangle(
-                (-0.5, -0.5),
-                w, h,
-                edgecolor=color,
-                facecolor="none",
-                linewidth=1.5,
-                clip_on=False,
-            ))
+            ax.add_patch(
+                Rectangle(
+                    (-0.5, -0.5),
+                    w,
+                    h,
+                    edgecolor=color,
+                    facecolor="none",
+                    linewidth=1.5,
+                    clip_on=False,
+                )
+            )
 
             self._draw_histogram(
-                ax, hist, radius, radius,
-                radius, color,
+                ax,
+                hist,
+                radius,
+                radius,
+                radius,
+                color,
             )
 
             ax.set_xlim(-0.5, w - 0.5)
             ax.set_ylim(h - 0.5, -0.5)
             ax.set_aspect("equal")
             ax.set_title(
-                f"Point {label} · octave {point['octave']}"
-                f" · layer {point['layer']}"
+                f"Point {label} · octave {point['octave']} · layer {point['layer']}"
             )
 
         # Не даём стрелкам и рамкам менять границы обзора
@@ -288,9 +292,8 @@ class OrientationDebugger:
 def assert_octaves(octaves: list[torch.Tensor], ref_octaves: list[torch.Tensor]):
     assert len(ref_octaves) == len(octaves)
     for ref_octave, octave in zip(ref_octaves, octaves):
-        assert ref_octave.shape == octave.shape 
+        assert ref_octave.shape == octave.shape
         assert torch.allclose(ref_octave, octave, atol=1e-5, rtol=1e-5)
-
 
 
 def read_octaves(path: Path | str) -> list[torch.Tensor]:
@@ -318,9 +321,8 @@ def read_octaves(path: Path | str) -> list[torch.Tensor]:
 def read_keypoints(path: Path | str) -> list[KeyPoint]:
     fs = cv2.FileStorage(path, cv2.FILE_STORAGE_READ)
 
-    node = fs.getNode("keypoints");
-
-    keypoints:list[KeyPoint] = []
+    node = fs.getNode("keypoints")
+    keypoints: list[KeyPoint] = []
 
     for i in range(node.size()):
         kp_cv2 = node.at(i)
@@ -336,7 +338,13 @@ def read_keypoints(path: Path | str) -> list[KeyPoint]:
         class_id = int(kp_cv2.at(6).real())
 
         kp = KeyPoint(
-            x=x, y=y, size=size, octave=octave, class_id=class_id, response=response, angle=angle
+            x=x,
+            y=y,
+            size=size,
+            octave=octave,
+            class_id=class_id,
+            response=response,
+            angle=angle,
         )
 
         keypoints.append(kp)
@@ -350,12 +358,12 @@ def assert_keypoints(keypoints: list[KeyPoint], ref_keypoints: list[KeyPoint]):
     assert len(keypoints) == len(ref_keypoints)
 
     for kp, ref_kp in zip(keypoints, ref_keypoints):
-        assert math.isclose(kp.x, ref_kp.x, rel_tol=1e-5, abs_tol=1e-3), f"kp.x = {kp.x}, ref_kp.x = {ref_kp.x}"
+        assert math.isclose(kp.x, ref_kp.x, rel_tol=1e-5, abs_tol=1e-3), (
+            f"kp.x = {kp.x}, ref_kp.x = {ref_kp.x}"
+        )
         assert math.isclose(kp.y, ref_kp.y, rel_tol=1e-5, abs_tol=1e-3)
         assert math.isclose(kp.size, ref_kp.size, rel_tol=1e-5, abs_tol=1e-3)
         assert kp.octave == ref_kp.octave
         assert kp.class_id == ref_kp.class_id
         assert math.isclose(kp.response, ref_kp.response, rel_tol=1e-5, abs_tol=1e-3)
         assert math.isclose(kp.angle, ref_kp.angle, rel_tol=1e-5, abs_tol=1e-3)
-
-    
