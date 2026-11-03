@@ -289,6 +289,247 @@ class OrientationDebugger:
         # return fig
 
 
+class DescriptorsDebugger:
+    def __init__(self, image, n=6):
+        self.image = self._numpy(image).squeeze()
+
+        if self.image.ndim != 2:
+            raise ValueError(
+                "Expected grayscale image [H, W] or [1, H, W]"
+            )
+
+        self.n = n
+
+    @staticmethod
+    def _numpy(value):
+        if isinstance(value, torch.Tensor):
+            return value.detach().cpu().numpy()
+
+        return np.asarray(value)
+
+    @staticmethod
+    def _draw_grid(ax, center, width, angle, color, hist=None):
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+
+        rotation = np.array([
+            [cos_a, -sin_a],
+            [sin_a, cos_a],
+        ])
+
+        def transform(points):
+            return (
+                np.asarray(points) @ rotation.T * width
+                + center
+            )
+
+        for edge in range(5):
+            p = edge - 2
+
+            lines = (
+                [(p, -2), (p, 2)],
+                [(-2, p), (2, p)],
+            )
+
+            for line in lines:
+                points = transform(line)
+
+                ax.plot(
+                    points[:, 0],
+                    points[:, 1],
+                    color=color,
+                    linewidth=0.8,
+                )
+
+        ax.plot(*center, "+", color=color, markersize=7)
+
+        if hist is None:
+            return
+
+        hist = hist.reshape(4, 4, 8)
+
+        peak = hist.max()
+
+        if peak > 0:
+            lengths = hist / peak * (0.4 * width)
+        else:
+            lengths = np.zeros_like(hist)
+
+        yy, xx = np.meshgrid(
+            np.arange(4) - 1.5,
+            np.arange(4) - 1.5,
+            indexing="ij",
+        )
+
+        centers = transform(
+            np.stack([xx, yy], axis=-1)
+        )
+
+        directions = (
+            np.arange(8) * (2 * np.pi / 8)
+            + angle
+        )
+
+        ax.quiver(
+            np.repeat(centers[..., 0].ravel(), 8),
+            np.repeat(centers[..., 1].ravel(), 8),
+            (lengths * np.cos(directions)).ravel(),
+            (lengths * np.sin(directions)).ravel(),
+            color=color,
+            angles="xy",
+            scale_units="xy",
+            scale=1,
+            pivot="tail",
+            width=0.004,
+        )
+
+    def draw(
+        self,
+        descriptors,
+        keypoints,
+        octaves,
+        params,
+        columns=3,
+    ):
+        if len(descriptors) != len(keypoints):
+            raise ValueError(
+                "Each descriptor must have a matching keypoint"
+            )
+
+        count = min(self.n, len(keypoints))
+
+        if count <= 0:
+            return
+
+        columns = max(1, min(columns, count))
+        rows = math.ceil(count / columns)
+
+        fig = plt.figure(
+            figsize=(8 + 3.5 * columns, max(6, 3.5 * rows)),
+            constrained_layout=True,
+        )
+
+        outer = fig.add_gridspec(
+            1, 2,
+            width_ratios=[1, 1.3],
+        )
+
+        overview = fig.add_subplot(outer[0, 0])
+        overview.imshow(
+            self.image,
+            cmap="gray",
+            origin="upper",
+        )
+        overview.set_title("Descriptor grids")
+
+        grid = outer[0, 1].subgridspec(rows, columns)
+
+        first_octave = -1 if params.upscale_first else 0
+
+        for i in range(count):
+            kp = keypoints[i]
+
+            hist = self._numpy(descriptors[i]).reshape(4, 4, 8)
+
+            img = self._numpy(
+                octaves[kp.octave - first_octave][kp.class_id]
+            )
+
+            scale = 2.0**kp.octave
+
+            xi = math.floor(kp.x / scale + 0.5)
+            yi = math.floor(kp.y / scale + 0.5)
+
+            sigma = params.sigma * 2.0**(
+                kp.class_id / params.n_octave_layers
+            )
+            width = 3.0 * sigma
+
+            radius = math.floor(
+                0.5 * width * 5 * math.sqrt(2) + 0.5
+            )
+
+            angle = math.radians(kp.angle)
+            color = plt.get_cmap("tab10")(i % 10)
+            center = np.array([xi, yi])
+
+            self._draw_grid(
+                overview,
+                center * scale,
+                width * scale,
+                angle,
+                color,
+            )
+
+            overview.annotate(
+                str(i),
+                center * scale,
+                xytext=(5, 5),
+                textcoords="offset points",
+                color=color,
+                bbox=dict(
+                    facecolor="black",
+                    alpha=0.6,
+                    edgecolor="none",
+                ),
+            )
+
+            ax = fig.add_subplot(
+                grid[i // columns, i % columns]
+            )
+
+            tile = img[
+                yi - radius:yi + radius + 1,
+                xi - radius:xi + radius + 1,
+            ]
+
+            # Сохраняем координаты пикселей слоя.
+            extent = (
+                xi - radius - 0.5,
+                xi + radius + 0.5,
+                yi + radius + 0.5,
+                yi - radius - 0.5,
+            )
+
+            ax.imshow(
+                tile,
+                cmap="gray",
+                origin="upper",
+                extent=extent,
+                interpolation="nearest",
+            )
+
+            self._draw_grid(
+                ax,
+                center,
+                width,
+                angle,
+                color,
+                hist,
+            )
+
+            ax.set_xlim(extent[:2])
+            ax.set_ylim(extent[2:])
+            ax.set_aspect("equal")
+
+            ax.set_title(
+                f"Point {i} · octave {kp.octave}"
+                f" · layer {kp.class_id}\n"
+                f"angle {kp.angle:.1f}°"
+            )
+
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+        h, w = self.image.shape
+
+        overview.set_xlim(-0.5, w - 0.5)
+        overview.set_ylim(h - 0.5, -0.5)
+
+        plt.show()
+        return fig
+
+
 def assert_octaves(octaves: list[torch.Tensor], ref_octaves: list[torch.Tensor]):
     assert len(ref_octaves) == len(octaves)
     for ref_octave, octave in zip(ref_octaves, octaves):

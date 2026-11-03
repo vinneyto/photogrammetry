@@ -304,6 +304,7 @@ def select_top_keypoints(kpts: list[KeyPoint], params: SIFTParams) -> list[KeyPo
     return sorted(kpts, key=lambda kp: -kp.response)[: params.nfeatures]
 
 
+@torch.no_grad()
 def compute_orientations(
     kpts: list[KeyPoint],
     octaves: list[torch.Tensor],
@@ -458,3 +459,190 @@ def compute_orientations(
             )
 
     return oriented_kpts
+
+@torch.no_grad()
+def compute_descriptors(kpts, octaves, params):
+    n_spatial_bins = 4
+    n_orient_bins = 8
+    n_dims = n_spatial_bins**2 * n_orient_bins  # 128
+
+    first_octave = -1 if params.upscale_first else 0
+
+    descriptors = []
+    valid_kpts = []
+
+    for kp in kpts:
+        img = octaves[kp.octave - first_octave][kp.class_id]
+
+        scale = 2.0**kp.octave
+
+        xi = math.floor(kp.x / scale + 0.5)
+        yi = math.floor(kp.y / scale + 0.5)
+
+        sigma = params.sigma * 2.0**(
+            kp.class_id / params.n_octave_layers
+        )
+
+        spatial_bin_width = 3.0 * sigma
+
+        half_width = (
+            0.5
+            * spatial_bin_width
+            * (n_spatial_bins + 1)
+            * math.sqrt(2)
+        )
+        radius = math.floor(half_width + 0.5)
+
+        h, w = img.shape
+
+        if (
+            xi - radius <= 0
+            or xi + radius >= w - 1
+            or yi - radius <= 0
+            or yi + radius >= h - 1
+        ):
+            continue
+
+        y0, y1 = yi - radius, yi + radius + 1
+        x0, x1 = xi - radius, xi + radius + 1
+
+        gx = (
+            img[y0:y1, x0 + 1:x1 + 1]
+            - img[y0:y1, x0 - 1:x1 - 1]
+        )
+        gy = (
+            img[y0 + 1:y1 + 1, x0:x1]
+            - img[y0 - 1:y1 - 1, x0:x1]
+        )
+
+        mag = torch.sqrt(gx.square() + gy.square())
+
+        offsets = torch.arange(
+            -radius,
+            radius + 1,
+            device=img.device,
+            dtype=img.dtype,
+        )
+
+        dy, dx = torch.meshgrid(offsets, offsets, indexing="ij")
+
+        kp_angle_rad = math.radians(kp.angle)
+        cos_a = math.cos(kp_angle_rad)
+        sin_a = math.sin(kp_angle_rad)
+
+        rot_x = (cos_a * dx + sin_a * dy) / spatial_bin_width
+        rot_y = (-sin_a * dx + cos_a * dy) / spatial_bin_width
+
+        bin_x = rot_x + n_spatial_bins / 2 - 0.5
+        bin_y = rot_y + n_spatial_bins / 2 - 0.5
+
+        angle = torch.atan2(gy, gx)
+        angle_invariant = (angle - kp_angle_rad) % (2 * math.pi)
+
+        bin_o = angle_invariant * n_orient_bins / (2 * math.pi)
+        bin_o = bin_o % n_orient_bins
+
+        if params.enable_descriptor_gaussian_weighting:
+            sigma_desc = n_spatial_bins / 2
+
+            weight = torch.exp(
+                -(rot_x.square() + rot_y.square())
+                / (2 * sigma_desc**2)
+            )
+
+            mag = mag * weight
+
+        inside = (
+            (bin_x >= -1)
+            & (bin_x < n_spatial_bins)
+            & (bin_y >= -1)
+            & (bin_y < n_spatial_bins)
+        )
+
+        bin_x, bin_y, bin_o, mag = [
+            value[inside]
+            for value in (bin_x, bin_y, bin_o, mag)
+        ]
+
+        desc = img.new_zeros(n_dims)
+
+        if params.enable_descriptor_bin_interpolation:
+            ix0 = bin_x.floor().long()
+            iy0 = bin_y.floor().long()
+            io0 = bin_o.floor().long()
+
+            fx = bin_x - ix0
+            fy = bin_y - iy0
+            fo = bin_o - io0
+
+            for diy in (0, 1):
+                iy = iy0 + diy
+                wy = fy if diy else 1 - fy
+
+                for dix in (0, 1):
+                    ix = ix0 + dix
+                    wx = fx if dix else 1 - fx
+
+                    valid = (
+                        (ix >= 0)
+                        & (ix < n_spatial_bins)
+                        & (iy >= 0)
+                        & (iy < n_spatial_bins)
+                    )
+
+                    for dio in (0, 1):
+                        io = (io0 + dio) % n_orient_bins
+                        wo = fo if dio else 1 - fo
+
+                        idx = (
+                            (iy * n_spatial_bins + ix)
+                            * n_orient_bins
+                            + io
+                        )
+
+                        contribution = mag * wx * wy * wo
+
+                        desc.scatter_add_(
+                            dim=0,
+                            index=idx[valid],
+                            src=contribution[valid],
+                        )
+
+        else:
+            ix, iy, io = [
+                (value.sign() * (value.abs() + 0.5).floor()).long()
+                for value in (bin_x, bin_y, bin_o)
+            ]
+
+            io = io % n_orient_bins
+
+            valid = (
+                (ix >= 0)
+                & (ix < n_spatial_bins)
+                & (iy >= 0)
+                & (iy < n_spatial_bins)
+            )
+
+            idx = (
+                (iy * n_spatial_bins + ix)
+                * n_orient_bins
+                + io
+            )
+
+            desc.scatter_add_(
+                dim=0,
+                index=idx[valid],
+                src=mag[valid],
+            )
+
+        desc = desc / (desc.norm() + 1e-7)
+        desc = desc.clamp(max=0.2)
+        desc = desc / (desc.norm() + 1e-7)
+
+        descriptors.append(desc)
+        valid_kpts.append(kp)
+
+    if not descriptors:
+        return octaves[0].new_empty((0, n_dims)), valid_kpts
+
+    return torch.stack(descriptors), valid_kpts
